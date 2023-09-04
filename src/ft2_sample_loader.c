@@ -24,6 +24,7 @@ bool loadAIFF(FILE *f, uint32_t filesize);
 bool loadIFF(FILE *f, uint32_t filesize);
 bool loadRAW(FILE *f, uint32_t filesize);
 bool loadWAV(FILE *f, uint32_t filesize);
+bool loadBRR(FILE* f, uint32_t filesize);
 
 enum
 {
@@ -31,14 +32,15 @@ enum
 	FORMAT_IFF = 1,
 	FORMAT_WAV = 2,
 	FORMAT_AIFF = 3,
-	FORMAT_FLAC = 4
+	FORMAT_FLAC = 4,
+	FORMAT_BRR = 5
 };
 
 // file extensions accepted by Disk Op. in sample mode
 char *supportedSmpExtensions[] =
 {
 	"iff", "raw", "wav", "snd", "smp", "sam", "aif", "pat",
-	"aiff","flac", // IMPORTANT: Remember comma after last entry!!!
+	"aiff","flac","brr", // IMPORTANT: Remember comma after last entry!!!
 
 	"END_OF_LIST" // do NOT move, remove or edit this line!
 };
@@ -69,6 +71,9 @@ static int8_t detectSample(FILE *f)
 	if (!memcmp("fLaC", &D[0], 4)) // XXX: Kinda lousy detection...
 		return FORMAT_FLAC;
 
+	if (!memcmp("fLaC", &D[0], 4))
+		return FORMAT_FLAC;
+
 	if (!memcmp("FORM", &D[0], 4) && (!memcmp("8SVX", &D[8], 4) || !memcmp("16SV", &D[8], 4)))
 		return FORMAT_IFF;
 
@@ -95,8 +100,15 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 		loaderMsgBox("General I/O error during loading! Is the file in use?");
 		return false;
 	}
-
-	int8_t format = detectSample(f);
+	//char* hasBRR = SDL_strcasestr(editor.tmpFilenameU, ".brr");
+	//if (hasBRR != NULL)
+	int8_t format = 0;
+	char* hasBrr = SDL_strcasestr(unicharToCp437(editor.tmpFilenameU, true), ".brr");
+	
+	if (hasBrr != NULL)
+		format = FORMAT_BRR;
+	else
+		format = detectSample(f);
 	fseek(f, 0, SEEK_END);
 	uint32_t filesize = ftell(f);
 
@@ -125,6 +137,7 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 		case FORMAT_IFF: sampleLoaded = loadIFF(f, filesize); break;
 		case FORMAT_WAV: sampleLoaded = loadWAV(f, filesize); break;
 		case FORMAT_AIFF: sampleLoaded = loadAIFF(f, filesize); break;
+		case FORMAT_BRR: sampleLoaded = loadBRR(f, filesize); break;
 		default: sampleLoaded = loadRAW(f, filesize); break;
 	}
 	fclose(f);
