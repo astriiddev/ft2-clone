@@ -1,5 +1,7 @@
-# ft2-clone
+# ft2-clone with BRR support
 Fasttracker II clone for Windows/macOS/Linux, by [8bitbubsy](https://16-bits.org).
+
+Super Nintendo BRR support added by \_astriid\_
 
 Aims to be a **highly accurate** clone of the classic Fasttracker II software for MS-DOS. \
 The XM player itself has been directly ported from the original source code, for maximum accuracy. \
