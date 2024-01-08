@@ -39,7 +39,7 @@ bool loadBRR(FILE* f, uint32_t filesize)
 
     if (fread(brrBuffer, 1, filesize, f) != filesize)
     {
-        okBoxThreadSafe(0, "System message", "General I/O error during loading! Is the file in use?");
+        okBoxThreadSafe(0, "System message", "General I/O error during loading! Is the file in use?", NULL);
         free(brrBuffer);
         brrBuffer = NULL;
         return false;
@@ -109,7 +109,7 @@ bool loadBRR(FILE* f, uint32_t filesize)
                 if (filterFlag > 3) filterFlag = 3;
 
                 if ((loopFlag = in_byte & 0x02))
-                    s->flags != LOOP_FWD;
+                    s->flags |= LOOP_FWD;
                 else
                 {
                     s->flags &= ~LOOP_FWD;
