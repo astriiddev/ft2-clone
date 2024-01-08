@@ -17,13 +17,16 @@
 #include "ft2_structs.h"
 
 #ifdef HAS_LIBFLAC
-bool loadFLAC(FILE *f, uint32_t filesize);
+bool loadFLAC(FILE* f, uint32_t filesize);
 #endif
 
-bool loadAIFF(FILE *f, uint32_t filesize);
-bool loadIFF(FILE *f, uint32_t filesize);
-bool loadRAW(FILE *f, uint32_t filesize);
-bool loadWAV(FILE *f, uint32_t filesize);
+bool loadAIFF(FILE* f, uint32_t filesize);
+bool loadIFF(FILE* f, uint32_t filesize);
+bool loadRAW(FILE* f, uint32_t filesize);
+bool loadWAV(FILE* f, uint32_t filesize);
+bool loadBRR(FILE* f, uint32_t filesize);
+
+static char* _strcasestr(const char* haystack, const char* needle);
 
 enum
 {
@@ -31,42 +34,46 @@ enum
 	FORMAT_IFF = 1,
 	FORMAT_WAV = 2,
 	FORMAT_AIFF = 3,
-	FORMAT_FLAC = 4
+	FORMAT_FLAC = 4,
+	FORMAT_BRR = 5
 };
 
 // file extensions accepted by Disk Op. in sample mode
-char *supportedSmpExtensions[] =
+char* supportedSmpExtensions[] =
 {
 	"iff", "raw", "wav", "snd", "smp", "sam", "aif", "pat",
-	"aiff","flac", // IMPORTANT: Remember comma after last entry!!!
+	"aiff","flac","brr", // IMPORTANT: Remember comma after last entry!!!
 
 	"END_OF_LIST" // do NOT move, remove or edit this line!
 };
 
 // globals for sample loaders
 bool loadAsInstrFlag, smpFilenameSet;
-char *smpFilename;
+char* smpFilename;
 uint8_t sampleSlot;
 sample_t tmpSmp;
 // --------------------------
 
 static volatile bool sampleIsLoading;
-static SDL_Thread *thread;
+static SDL_Thread* thread;
 
-static void freeTmpSample(sample_t *s);
+static void freeTmpSample(sample_t* s);
 
 // Crude sample detection routine. These aren't always accurate detections!
-static int8_t detectSample(FILE *f)
+static int8_t detectSample(FILE* f)
 {
 	uint8_t D[512];
 
 	uint32_t oldPos = ftell(f);
 	rewind(f);
-	memset(D, 0, sizeof (D));
-	fread(D, 1, sizeof (D), f);
+	memset(D, 0, sizeof(D));
+	fread(D, 1, sizeof(D), f);
 	fseek(f, oldPos, SEEK_SET);
 
 	if (!memcmp("fLaC", &D[0], 4)) // XXX: Kinda lousy detection...
+		return FORMAT_FLAC;
+
+	if (!memcmp("fLaC", &D[0], 4))
 		return FORMAT_FLAC;
 
 	if (!memcmp("FORM", &D[0], 4) && (!memcmp("8SVX", &D[8], 4) || !memcmp("16SV", &D[8], 4)))
@@ -81,7 +88,7 @@ static int8_t detectSample(FILE *f)
 	return FORMAT_UNKNOWN;
 }
 
-static int32_t SDLCALL loadSampleThread(void *ptr)
+static int32_t SDLCALL loadSampleThread(void* ptr)
 {
 	if (editor.tmpFilenameU == NULL)
 	{
@@ -89,14 +96,20 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 		return false;
 	}
 
-	FILE *f = UNICHAR_FOPEN(editor.tmpFilenameU, "rb");
+	FILE* f = UNICHAR_FOPEN(editor.tmpFilenameU, "rb");
 	if (f == NULL)
 	{
 		loaderMsgBox("General I/O error during loading! Is the file in use?");
 		return false;
 	}
 
-	int8_t format = detectSample(f);
+	int8_t format = 0;
+
+	if (_strcasestr(unicharToCp437(editor.tmpFilenameU, true), ".brr") != NULL)
+		format = FORMAT_BRR;
+	else
+		format = detectSample(f);
+
 	fseek(f, 0, SEEK_END);
 	uint32_t filesize = ftell(f);
 
@@ -112,20 +125,21 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 	rewind(f);
 	switch (format)
 	{
-		case FORMAT_FLAC:
-		{
+	case FORMAT_FLAC:
+	{
 #ifdef HAS_LIBFLAC
-			sampleLoaded = loadFLAC(f, filesize);
+		sampleLoaded = loadFLAC(f, filesize);
 #else
-			loaderMsgBox("Can't load sample: Program is not compiled with FLAC support!");
+		loaderMsgBox("Can't load sample: Program is not compiled with FLAC support!");
 #endif
-		}
-		break;
+	}
+	break;
 
-		case FORMAT_IFF: sampleLoaded = loadIFF(f, filesize); break;
-		case FORMAT_WAV: sampleLoaded = loadWAV(f, filesize); break;
-		case FORMAT_AIFF: sampleLoaded = loadAIFF(f, filesize); break;
-		default: sampleLoaded = loadRAW(f, filesize); break;
+	case FORMAT_IFF: sampleLoaded = loadIFF(f, filesize); break;
+	case FORMAT_WAV: sampleLoaded = loadWAV(f, filesize); break;
+	case FORMAT_AIFF: sampleLoaded = loadAIFF(f, filesize); break;
+	case FORMAT_BRR: sampleLoaded = loadBRR(f, filesize); break;
+	default: sampleLoaded = loadRAW(f, filesize); break;
 	}
 	fclose(f);
 
@@ -136,7 +150,7 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 
 	if (!smpFilenameSet) // if we didn't set a custom sample name in the loader, set it to its filename
 	{
-		char *tmpFilename = unicharToCp437(editor.tmpFilenameU, true);
+		char* tmpFilename = unicharToCp437(editor.tmpFilenameU, true);
 		if (tmpFilename != NULL)
 		{
 			int32_t i = (int32_t)strlen(tmpFilename);
@@ -146,9 +160,9 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 					break;
 			}
 
-			char *tmpPtr = tmpFilename;
+			char* tmpPtr = tmpFilename;
 			if (i > 0)
-				tmpPtr += i+1;
+				tmpPtr += i + 1;
 
 			sanitizeFilename(tmpPtr);
 
@@ -183,10 +197,10 @@ static int32_t SDLCALL loadSampleThread(void *ptr)
 		goto loadError;
 	}
 
-	sample_t *s = &instr[editor.curInstr]->smp[sampleSlot];
+	sample_t* s = &instr[editor.curInstr]->smp[sampleSlot];
 
 	freeSample(editor.curInstr, sampleSlot);
-	memcpy(s, &tmpSmp, sizeof (sample_t));
+	memcpy(s, &tmpSmp, sizeof(sample_t));
 
 	sanitizeSample(s);
 
@@ -211,7 +225,7 @@ loadError:
 	(void)ptr;
 }
 
-static void freeTmpSample(sample_t *s)
+static void freeTmpSample(sample_t* s)
 {
 	freeSmpData(s);
 }
@@ -221,7 +235,7 @@ void removeSampleIsLoadingFlag(void)
 	sampleIsLoading = false;
 }
 
-bool loadSample(UNICHAR *filenameU, uint8_t smpNr, bool instrFlag)
+bool loadSample(UNICHAR* filenameU, uint8_t smpNr, bool instrFlag)
 {
 	if (sampleIsLoading || filenameU == NULL)
 		return false;
@@ -241,7 +255,7 @@ bool loadSample(UNICHAR *filenameU, uint8_t smpNr, bool instrFlag)
 	sampleIsLoading = true;
 	smpFilenameSet = false;
 
-	memset(&tmpSmp, 0, sizeof (tmpSmp));
+	memset(&tmpSmp, 0, sizeof(tmpSmp));
 	UNICHAR_STRCPY(editor.tmpFilenameU, filenameU);
 
 	mouseAnimOn();
@@ -257,7 +271,7 @@ bool loadSample(UNICHAR *filenameU, uint8_t smpNr, bool instrFlag)
 	return true;
 }
 
-void normalizeSigned32Bit(int32_t *sampleData, uint32_t sampleLength)
+void normalizeSigned32Bit(int32_t* sampleData, uint32_t sampleLength)
 {
 	uint32_t i;
 
@@ -277,7 +291,7 @@ void normalizeSigned32Bit(int32_t *sampleData, uint32_t sampleLength)
 		sampleData[i] = (int32_t)(sampleData[i] * dGain);
 }
 
-void normalize32BitFloatToSigned16Bit(float *fSampleData, uint32_t sampleLength)
+void normalize32BitFloatToSigned16Bit(float* fSampleData, uint32_t sampleLength)
 {
 	uint32_t i;
 
@@ -297,7 +311,7 @@ void normalize32BitFloatToSigned16Bit(float *fSampleData, uint32_t sampleLength)
 		fSampleData[i] *= fGain;
 }
 
-void normalize64BitFloatToSigned16Bit(double *dSampleData, uint32_t sampleLength)
+void normalize64BitFloatToSigned16Bit(double* dSampleData, uint32_t sampleLength)
 {
 	uint32_t i;
 
@@ -315,4 +329,25 @@ void normalize64BitFloatToSigned16Bit(double *dSampleData, uint32_t sampleLength
 	const double dGain = (double)INT16_MAX / dSampleVolPeak;
 	for (i = 0; i < sampleLength; i++)
 		dSampleData[i] *= dGain;
+}
+
+/* Cross-platform strcasestr with respect to early SDL2 versions */
+static char* _strcasestr(const char* haystack, const char* needle)
+{
+
+#ifdef HAVE_STRCASESTR
+	return SDL_const_cast(char*, strcasestr(haystack, needle));
+#elif(SDL_VERSION_ATLEAST(2,26,0))
+	return SDL_const_cast(char*, SDL_strcasestr(haystack, needle));
+#else
+	size_t length = SDL_strlen(needle);
+	while (*haystack) {
+		if (SDL_strncasecmp(haystack, needle, length) == 0) {
+			return (char*)haystack;
+		}
+		++haystack;
+	}
+	return NULL;
+#endif
+
 }

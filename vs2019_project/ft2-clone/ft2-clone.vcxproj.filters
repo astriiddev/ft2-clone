@@ -167,6 +167,9 @@
     <ClCompile Include="..\..\src\mixer\ft2_cubic_spline.c">
       <Filter>mixer</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\smploaders\ft2_load_brr.c">
+      <Filter>smploaders</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\rtmidi\RtMidi.h">
