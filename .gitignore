@@ -22,3 +22,7 @@ vs2019_project/ft2-clone/Debug/ft2-clone.vcxproj.FileListAbsolute.txt
 *.recipe
 *.iobj
 *.enc
+/vs2019_project/ft2-clone/ft2-clone.vcxproj.filters
+/vs2019_project/ft2-clone/ft2-clone.vcxproj
+/vs2019_project/.vs/ft2-clone/v17/.suo
+*.vsidx

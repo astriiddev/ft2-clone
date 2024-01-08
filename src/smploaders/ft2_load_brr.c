@@ -15,12 +15,18 @@
 #include "../ft2_sysreqs.h"
 #include "../ft2_sample_loader.h"
 
-int16_t filterCoeff(const int32_t sample, const bool sampleNumber, const uint8_t filterType);
+static int32_t block2sampSize(const int64_t in);
+static int16_t fixedMath16_16(const int32_t in, const int64_t numerator, const int32_t denominator);
+static void filterCoeff(const int16_t sample1, const int16_t sample2, int16_t* sampCoeff1, int16_t* sampCoeff2, const int8_t filterType);
 
 bool loadBRR(FILE* f, uint32_t filesize)
 {
-	sample_t* s = &tmpSmp;
+    sample_t* s = &tmpSmp;
     char* brrBuffer;
+
+    int32_t sampleDataPosition = 0, fileLength = 0,
+        sampleLength = 0, loopStart = 0, loopEnd = 0;
+
     brrBuffer = (char*)malloc(filesize * sizeof * brrBuffer);
 
     if (brrBuffer == NULL)
@@ -29,65 +35,51 @@ bool loadBRR(FILE* f, uint32_t filesize)
         return false;
     }
 
-    int32_t sampleDataPosition = 0, fileLength = 0, 
-            sampleLength = 0, loopStart = 0, loopEnd = 0;
-
     fileLength = (int32_t)filesize;
 
-	if (fread(brrBuffer, 1, filesize, f) != filesize)
-	{
-		okBoxThreadSafe(0, "System message", "General I/O error during loading! Is the file in use?");
+    if (fread(brrBuffer, 1, filesize, f) != filesize)
+    {
+        okBoxThreadSafe(0, "System message", "General I/O error during loading! Is the file in use?");
         free(brrBuffer);
         brrBuffer = NULL;
-		return false;
-	}
+        return false;
+    }
 
-    const double BLOCK_RATIO = 16.00 / 9 ;
-
-    bool    loopFlag = false, endFlag = false;
-    int32_t  endFlagPos = fileLength;
-    uint8_t  filterFlag = 0,
-             shifter    = 0;
-
-    static int16_t sampleOne      = 0, sampleTwo = 0 ,
-                   sampleCoeffOne = 0, sampleCoeffTwo = 0;
-
-    s->volume = 64;
-    s->panning = 128;
-    s->flags |= SAMPLE_16BIT;
-
-    if(brrBuffer != NULL)
+    if (brrBuffer != NULL)
     {
+        int16_t* ptr16 = NULL;
+
+        bool loopFlag = false, endFlag = false;
+
+        int32_t  endFlagPos = fileLength;
+
+        uint8_t  filterFlag = 0, shifter = 0;
+
+        int16_t sampleOne = 0, sampleTwo = 0,
+            sampleCoeffOne = 0, sampleCoeffTwo = 0;
+
+        s->volume = 64;
+        s->panning = 128;
+        s->flags |= SAMPLE_16BIT;
+
         if (fileLength % 9 == 0)
         {
-
             sampleDataPosition = 0;
-            sampleLength = (int32_t)(((uint64_t)fileLength * ((16 << 16) / 9) + 0x8000) >> 16);
-
-            if (!allocateSmpData(s, sampleLength, true))
-            {
-                loaderMsgBox("Not enough memory!");
-                return false;
-            }
+            sampleLength = block2sampSize(fileLength);
 
             s->flags |= LOOP_DISABLED;
             loopStart = 16;
-            loopEnd = sampleLength--;
+            loopEnd = sampleLength;
         }
         else if ((fileLength - 2) % 9 == 0)
         {
-            loopStart = (int32_t)(round((double)((uint8_t)brrBuffer[0] | (uint8_t)brrBuffer[1] << 8) * BLOCK_RATIO));
-
-            s->flags |= LOOP_FWD;
+            const int16_t loopStartBlock = (int16_t)((uint8_t)brrBuffer[0] | ((uint8_t)brrBuffer[1] << 8));
+            loopStart = block2sampSize(loopStartBlock);
 
             sampleDataPosition = 2;
-            sampleLength = (int32_t)((((uint64_t)filesize - 2) * ((16 << 16) / 9) + 0x8000) >> 16);
+            sampleLength = block2sampSize(fileLength - 2);
 
-            if (!allocateSmpData(s, sampleLength, true))
-            {
-                loaderMsgBox("Not enough memory!");
-                return false;
-            }
+            s->flags |= LOOP_FWD;
         }
         else
         {
@@ -96,44 +88,52 @@ bool loadBRR(FILE* f, uint32_t filesize)
             return false;
         }
 
-        int decodedSample = 0;
+        if (!allocateSmpData(s, sampleLength, true))
+        {
+            loaderMsgBox("Not enough memory!");
+            return false;
+        }
+
+        ptr16 = (int16_t*)s->dataPtr;
+
         for (int32_t i = sampleDataPosition; i < fileLength; i++)
         {
-            s->dataPtr[decodedSample + 0] = 0;
+            uint8_t in_byte = (uint8_t)brrBuffer[i];
+
             if ((i - sampleDataPosition) % 9 == 0)
             {
-                shifter = (uint8_t)(brrBuffer[i] & ~0x0F) >> 4;
+                shifter = (uint8_t)(in_byte & ~0x0F) >> 4;
+                if (shifter > 12) shifter = 12;
 
-                if (shifter > 12)
-                    shifter = 12;
+                filterFlag = (uint8_t)(in_byte & ~0xF3) >> 2;
+                if (filterFlag > 3) filterFlag = 3;
 
-                filterFlag = (uint8_t)(brrBuffer[i] & ~0xF3) >> 2;
-
-                if (filterFlag > 3)
-                    filterFlag = 3;
-
-                if (brrBuffer[i] & 0x02)
-                    loopFlag = true;
+                if ((loopFlag = in_byte & 0x02))
+                    s->flags != LOOP_FWD;
                 else
-                    loopFlag = false;
+                {
+                    s->flags &= ~LOOP_FWD;
+                    s->flags |= LOOP_DISABLED;
+                }
 
-                if (brrBuffer[i] & 0x01)
+                if (in_byte & 0x01)
                 {
                     endFlag = true;
                     endFlagPos = i;
 
                     if (loopFlag && endFlag)
                     {
-                        loopEnd = (uint32_t)(floor((double)(i + 7) * BLOCK_RATIO));
+                        loopEnd = block2sampSize(i + 7);
 
                         if (loopEnd > sampleLength)
                             loopEnd = sampleLength;
                     }
                     else
                     {
+                        s->flags &= ~LOOP_FWD;
                         s->flags |= LOOP_DISABLED;
                         loopStart = 16;
-                        loopEnd = sampleLength--;
+                        loopEnd = sampleLength;
                     }
                 }
                 else
@@ -149,56 +149,21 @@ bool loadBRR(FILE* f, uint32_t filesize)
                 {
                     int8_t nibble = 0;
 
-                    sampleCoeffOne = filterCoeff(sampleTwo, 0, filterFlag);
-                    sampleCoeffTwo = filterCoeff(sampleOne, 1, filterFlag);
+                    nibble = ((in_byte & ~0x0F) >> 4);
+                    if (nibble > 7) nibble ^= 0xF0;
 
-                    nibble = ((brrBuffer[i] & ~0x0F) >> 4);
-                    if (nibble > 7)
-                    {
-                        nibble -= 16;
-                    }
+                    filterCoeff(sampleTwo, sampleOne, &sampleCoeffOne, &sampleCoeffTwo, filterFlag);
+                    sampleOne = ((int16_t)nibble << shifter) + sampleCoeffOne - sampleCoeffTwo;
 
-                    sampleOne = ((int16_t)nibble << shifter) + (sampleCoeffOne)-(sampleCoeffTwo);
+                    *ptr16++ = sampleOne;
 
-                    if (i > endFlagPos + 8)
-                    {
-                        s->dataPtr[decodedSample + 0] = 0;
-                        s->dataPtr[decodedSample + 1] = 0;
-                    }
-                    else
-                    {
-                        s->dataPtr[decodedSample + 0] = (uint8_t)(sampleOne & ~0xFF00);
-                        s->dataPtr[decodedSample + 1] = (uint8_t)((sampleOne & ~0x00FF) >> 8);
-                    }
+                    nibble = (in_byte & ~0xF0);
+                    if (nibble > 7) nibble ^= 0xF0;
 
-                    decodedSample += 2;
+                    filterCoeff(sampleOne, sampleTwo, &sampleCoeffOne, &sampleCoeffTwo, filterFlag);
+                    sampleTwo = ((int16_t)nibble << shifter) + sampleCoeffOne - sampleCoeffTwo;
 
-                    sampleCoeffOne = filterCoeff(sampleOne, 0, filterFlag);
-                    sampleCoeffTwo = filterCoeff(sampleTwo, 1, filterFlag);
-
-                    nibble = (brrBuffer[i] & ~0xF0);
-                    if (nibble > 7)
-                    {
-                        nibble -= 16;
-                    }
-
-                    sampleTwo = ((int16_t)nibble << shifter) + (sampleCoeffOne)-(sampleCoeffTwo);
-
-                    if (i > endFlagPos + 8)
-                    {
-                        s->dataPtr[decodedSample + 0] = 0;
-                        s->dataPtr[decodedSample + 1] = 0;
-                    }
-                    else
-                    {
-                        s->dataPtr[decodedSample + 0] = (uint8_t)(sampleTwo & ~0xFF00);
-                        s->dataPtr[decodedSample + 1] = (uint8_t)((sampleTwo & ~0x00FF) >> 8);
-                    }
-
-                    decodedSample += 2;
-
-                    if (decodedSample >= (int)(sampleLength << 1))
-                        break;
+                    *ptr16++ = sampleTwo;
                 }
             }
         }
@@ -206,7 +171,7 @@ bool loadBRR(FILE* f, uint32_t filesize)
         s->length = sampleLength;
         s->loopStart = loopStart;
         s->loopLength = loopEnd - loopStart;
-        
+
         free(brrBuffer);
         brrBuffer = NULL;
     }
@@ -214,32 +179,42 @@ bool loadBRR(FILE* f, uint32_t filesize)
     return true;
 }
 
-int16_t filterCoeff(const int32_t sample, const bool sampleNumber, const uint8_t filterType)
+/* converts number of bytes to number of samples as per BRR's 16 sample to 9 byte ratio*/
+static int32_t block2sampSize(const int64_t in)
 {
-    if (filterType == 1)
-    {
-        if (sampleNumber == 0)
-            return (int16_t)((sample * ((15 << 16) / 16) + 0x8000) >> 16);
-        else
-            return 0;
-    }
+    /* equivalent to (int32) round(in  * 16.0 / 9.0) */
+    return (int32_t)((in * ((16 << 16) / 9) + 0x8000) >> 16);
+}
 
-    else if (filterType == 2)
-    {
-        if (sampleNumber == 0)
-            return (int16_t)((sample * ((61 << 16) / 32) + 0x8000) >> 16);
-        else
-            return (int16_t)((sample * ((15 << 16) / 16) + 0x8000) >> 16);
-    }
+/* S-DSP chip uses 16.16 fixed math for its filter coefficients during decoding */
+static int16_t fixedMath16_16(const int32_t in, const int64_t numerator, const int32_t denominator)
+{
+    /* equivalent to (int16) (in * numerator / denominator) */
+    return (int16_t)((in * (numerator << 16) / denominator) >> 16);
+}
 
-    else if (filterType == 3)
+static void filterCoeff(const int16_t sample1, const int16_t sample2, int16_t* sampCoeff1, int16_t* sampCoeff2, const int8_t filterType)
+{
+    switch (filterType)
     {
-        if (sampleNumber == 0)
-            return (int16_t)((sample * ((115 << 16) / 64) + 0x8000) >> 16);
-        else
-            return (int16_t)((sample * ((13 << 16) / 16) + 0x8000) >> 16);
-    }
+    case 1:
+        *sampCoeff1 = fixedMath16_16(sample1, 15, 16);
+        *sampCoeff2 = 0;
+        break;
 
-    else /*filterType == 0*/
-        return 0;
+    case 2:
+        *sampCoeff1 = fixedMath16_16(sample1, 61, 32);
+        *sampCoeff2 = fixedMath16_16(sample2, 15, 16);
+        break;
+
+    case 3:
+        *sampCoeff1 = fixedMath16_16(sample1, 115, 64);
+        *sampCoeff2 = fixedMath16_16(sample2, 13, 16);
+        break;
+
+    default:
+        *sampCoeff1 = 0;
+        *sampCoeff2 = 0;
+        break;
+    }
 }
