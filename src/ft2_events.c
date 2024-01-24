@@ -445,10 +445,11 @@ static void handleSDLEvents(void)
 		}
 		else if (event.type == SDL_MOUSEWHEEL)
 		{
-			const int MOUSE_WHEEL_X = event.wheel.x;
-
-			if(MOUSE_WHEEL_X != 0) mouseWheelSampScroll(MOUSE_WHEEL_X);
-
+			if (event.wheel.x > 0)
+				mouseWheelSampScroll(MOUSE_WHEEL_RIGHT);
+			else if (event.wheel.x < 0)
+				mouseWheelSampScroll(MOUSE_WHEEL_LEFT);
+			
 			if (event.wheel.y > 0)
 				mouseWheelHandler(MOUSE_WHEEL_UP);
 			else if (event.wheel.y < 0)
