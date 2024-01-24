@@ -11,6 +11,9 @@ enum
 
 	MOUSE_WHEEL_DOWN = 0,
 	MOUSE_WHEEL_UP = 1
+
+	MOUSE_WHEEL_LEFT = 0,
+	MOUSE_WHEEL_RIGHT = 1
 };
 
 typedef struct mouse_t
@@ -39,7 +42,7 @@ void setMousePosToCenter(void);
 void setMouseShape(int16_t shape);
 void setMouseMode(uint8_t mode);
 void mouseWheelHandler(bool directionUp);
-void mouseWheelSampScroll(const int direction);
+void mouseWheelSampScroll(const bool directionRight);
 void mouseButtonUpHandler(uint8_t mouseButton);
 void mouseButtonDownHandler(uint8_t mouseButton);
 void updateMouseScaling(void);
