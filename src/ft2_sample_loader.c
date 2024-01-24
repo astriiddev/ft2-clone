@@ -3,6 +3,10 @@
 #include <crtdbg.h>
 #endif
 
+#if defined (__GNUC__) && !defined (_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>

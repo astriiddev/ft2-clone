@@ -39,6 +39,7 @@ void setMousePosToCenter(void);
 void setMouseShape(int16_t shape);
 void setMouseMode(uint8_t mode);
 void mouseWheelHandler(bool directionUp);
+void mouseWheelSampScroll(const int direction);
 void mouseButtonUpHandler(uint8_t mouseButton);
 void mouseButtonDownHandler(uint8_t mouseButton);
 void updateMouseScaling(void);
