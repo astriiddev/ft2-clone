@@ -555,7 +555,7 @@ void mouseWheelHandler(bool directionUp)
 	}
 }
 
-void mouseWheelSampScroll(const int directionRight)
+void mouseWheelSampScroll(const bool directionRight)
 {
 	if (!ui.sampleEditorShown) return;
 	if (mouse.y < 174 || mouse.y > 328) return;
